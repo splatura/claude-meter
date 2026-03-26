@@ -201,7 +201,45 @@ def generate_report(records, output_dir, malformed_count=0):
     if malformed_count > 0:
         lines.append(f"- **Malformed lines skipped:** {malformed_count}")
 
+    # Budget estimates
+    budget_estimates = analyzer.build_session_budget_estimates(records)
+    token_summary = analyzer.build_token_summary(records)
+
     lines.append("")
+    lines.append("## Token Usage")
+    lines.append("")
+    lines.append(f"| Metric | Value |")
+    lines.append(f"|--------|-------|")
+    lines.append(f"| Input tokens | {token_summary['input_tokens']:,} |")
+    lines.append(f"| Output tokens | {token_summary['output_tokens']:,} |")
+    lines.append(f"| Cache read tokens | {token_summary['cache_read_tokens']:,} ({token_summary['cache_read_pct']}%) |")
+    lines.append(f"| Cache create tokens | {token_summary['cache_create_tokens']:,} |")
+    lines.append("")
+
+    lines.append("## Current Utilization")
+    lines.append("")
+    lines.append("| Window | Current | Peak |")
+    lines.append("|--------|---------|------|")
+    for wname, wdata in sorted(token_summary["windows"].items()):
+        current = int(wdata["current"] * 100)
+        peak = int(wdata["peak"] * 100)
+        lines.append(f"| {wname} | {current}% | {peak}% |")
+    lines.append("")
+
+    lines.append("## Budget Estimates")
+    lines.append("")
+    for wname in sorted(budget_estimates.keys()):
+        est = budget_estimates[wname]
+        count = est.get("sessions", 0)
+        if count == 0:
+            lines.append(f"**{wname}:** Not enough data")
+            continue
+        if count == 1:
+            lines.append(f"**{wname}:** ~${est['median']:,.0f} (1 session)")
+        else:
+            lines.append(f"**{wname}:** ${est['min']:,.0f} - ${est['max']:,.0f} (median ${est['median']:,.0f}, {count} sessions)")
+    lines.append("")
+
     lines.append("## Charts")
     lines.append("")
 

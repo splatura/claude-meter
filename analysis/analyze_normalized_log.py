@@ -558,6 +558,247 @@ def build_per_model_caps(records, window="5h", meter="price_equivalent_5m"):
     return result
 
 
+def build_token_summary(records):
+    """Compute token stats, model breakdown, and current/peak utilization."""
+    total_input = 0
+    total_output = 0
+    total_cache_read = 0
+    total_cache_create = 0
+    models = {}
+
+    for r in records:
+        u = r.get("usage") or {}
+        inp = _numeric_usage_value(u.get("input_tokens"))
+        out = _numeric_usage_value(u.get("output_tokens"))
+        cr = _numeric_usage_value(u.get("cache_read_input_tokens"))
+        cc = _numeric_usage_value(u.get("cache_creation_input_tokens"))
+
+        total_input += inp
+        total_output += out
+        total_cache_read += cr
+        total_cache_create += cc
+
+        model = _coalesce_model(r)
+        if model:
+            entry = models.setdefault(model, {"calls": 0, "input": 0, "output": 0})
+            entry["calls"] += 1
+            entry["input"] += inp
+            entry["output"] += out
+
+    total_all = total_input + total_output + total_cache_read + total_cache_create
+    cache_read_pct = (total_cache_read / total_all * 100) if total_all > 0 else 0
+
+    # Current and peak utilization per window
+    # Sort by timestamp so "current" reflects the most recent record
+    windows = {}
+    sorted_records = sorted(records, key=_record_sort_timestamp)
+    for r in sorted_records:
+        for wname, wdata in ((r.get("ratelimit") or {}).get("windows") or {}).items():
+            util = wdata.get("utilization")
+            if not isinstance(util, (int, float)):
+                continue
+            entry = windows.setdefault(wname, {"current": 0, "peak": 0})
+            entry["current"] = util
+            if util > entry["peak"]:
+                entry["peak"] = util
+
+    # Plan tier and time range
+    plan_tier = None
+    first_ts = None
+    last_ts = None
+    for r in records:
+        if not plan_tier:
+            plan_tier = r.get("declared_plan_tier")
+        ts = _record_sort_timestamp(r)
+        if ts:
+            if first_ts is None or ts < first_ts:
+                first_ts = ts
+            if last_ts is None or ts > last_ts:
+                last_ts = ts
+
+    return {
+        "api_calls": len(records),
+        "plan_tier": plan_tier,
+        "first_timestamp": first_ts,
+        "last_timestamp": last_ts,
+        "input_tokens": total_input,
+        "output_tokens": total_output,
+        "cache_read_tokens": total_cache_read,
+        "cache_create_tokens": total_cache_create,
+        "cache_read_pct": round(cache_read_pct, 1),
+        "models": models,
+        "windows": windows,
+    }
+
+
+def build_session_budget_estimates(records, min_utilization_delta=0.05):
+    """Estimate dollar budgets per reset cycle for each window.
+
+    Groups records by window reset cycles. For each cycle, accumulates
+    total API cost (via price_equivalent_5m) and total utilization delta,
+    then computes implied_budget = total_cost / total_util_delta.
+
+    Returns dict keyed by window name, each containing a list of session
+    estimates and summary stats.
+    """
+    # Collect (window, utilization, cost) per record
+    window_data = {}
+    for r in records:
+        if not (200 <= (r.get("status") or 0) < 300):
+            continue
+        cost_units = usage_value(r, meter="price_equivalent_5m")
+        cost_dollars = cost_units / 1_000_000
+        for wname, wdata in ((r.get("ratelimit") or {}).get("windows") or {}).items():
+            util = wdata.get("utilization")
+            if not isinstance(util, (int, float)):
+                continue
+            entry = window_data.setdefault(wname, [])
+            entry.append({
+                "utilization": util,
+                "cost": cost_dollars,
+                "timestamp": _record_sort_timestamp(r),
+            })
+
+    results = {}
+    for wname, points in window_data.items():
+        points.sort(key=lambda p: p["timestamp"])
+
+        sessions = []
+        prev_util = None
+        session_cost = 0
+        session_util_delta = 0
+
+        for p in points:
+            util = p["utilization"]
+            if prev_util is not None and util < prev_util:
+                # Reset detected — save previous session
+                if session_util_delta >= min_utilization_delta and session_cost > 0:
+                    sessions.append(round(session_cost / session_util_delta, 2))
+                # Start new session — this point's cost belongs to the new cycle
+                session_cost = p["cost"]
+                session_util_delta = 0
+                prev_util = None
+            else:
+                session_cost += p["cost"]
+                if prev_util is not None:
+                    delta = util - prev_util
+                    if delta > 0:
+                        session_util_delta += delta
+            prev_util = util
+
+        # Final session
+        if session_util_delta >= min_utilization_delta and session_cost > 0:
+            sessions.append(round(session_cost / session_util_delta, 2))
+
+        if not sessions:
+            results[wname] = {"sessions": 0}
+            continue
+
+        sessions.sort()
+        results[wname] = {
+            "sessions": len(sessions),
+            "min": min(sessions),
+            "p25": _quantile(sessions, 0.25),
+            "median": round(statistics.median(sessions), 2),
+            "p75": _quantile(sessions, 0.75),
+            "max": max(sessions),
+            "estimates": sessions,
+        }
+
+    return results
+
+
+def load_records_multi(log_path):
+    """Load records from a single JSONL file or all JSONL files in a directory."""
+    path = Path(log_path)
+    files = []
+    if path.is_file():
+        files = [path]
+    elif path.is_dir():
+        normalized_dir = path / "normalized"
+        if normalized_dir.is_dir():
+            files = sorted(normalized_dir.glob("*.jsonl"))
+        else:
+            files = sorted(path.glob("*.jsonl"))
+
+    records = []
+    for filepath in files:
+        with filepath.open() as handle:
+            for line in handle:
+                line = line.strip()
+                if line:
+                    try:
+                        records.append(json.loads(line))
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+    return records
+
+
+def render_summary(records):
+    """Render a human-readable summary string."""
+    token_summary = build_token_summary(records)
+    budget_estimates = build_session_budget_estimates(records)
+
+    lines = []
+    plan = token_summary.get("plan_tier") or "unknown"
+    first = (token_summary.get("first_timestamp") or "")[:16].replace("T", " ")
+    last = (token_summary.get("last_timestamp") or "")[:16].replace("T", " ")
+
+    lines.append(f"claude-meter analysis")
+    lines.append("=" * 40)
+    lines.append("")
+    lines.append(f"Plan: {plan}")
+    lines.append(f"API calls: {token_summary['api_calls']:,}")
+    lines.append(f"Period: {first} -> {last}")
+    lines.append("")
+
+    lines.append("Token Usage")
+    lines.append("-" * 20)
+    lines.append(f"  Input:        {token_summary['input_tokens']:>14,}")
+    lines.append(f"  Output:       {token_summary['output_tokens']:>14,}")
+    lines.append(f"  Cache read:   {token_summary['cache_read_tokens']:>14,} ({token_summary['cache_read_pct']}%)")
+    lines.append(f"  Cache create: {token_summary['cache_create_tokens']:>14,}")
+    lines.append("")
+
+    lines.append("Current Utilization")
+    lines.append("-" * 20)
+    for wname, wdata in sorted(token_summary["windows"].items()):
+        current = int(wdata["current"] * 100)
+        peak = int(wdata["peak"] * 100)
+        lines.append(f"  {wname:<12} {current}% (peak: {peak}%)")
+    lines.append("")
+
+    for wname in sorted(budget_estimates.keys()):
+        est = budget_estimates[wname]
+        count = est.get("sessions", 0)
+        if count == 0:
+            lines.append(f"Estimated {wname} Budget")
+            lines.append("-" * 20)
+            lines.append("  Not enough data")
+            lines.append("")
+            continue
+
+        lines.append(f"Estimated {wname} Budget ({count} session{'s' if count != 1 else ''} observed)")
+        lines.append("-" * 20)
+        if count == 1:
+            lines.append(f"  Estimate: ~${est['median']:,.0f}")
+        else:
+            lines.append(f"  Range:   ${est['min']:,.0f} - ${est['max']:,.0f}")
+            lines.append(f"  Median:  ${est['median']:,.0f}")
+            lines.append(f"  p25-p75: ${est['p25']:,.0f} - ${est['p75']:,.0f}")
+        lines.append("")
+
+    lines.append("By Model")
+    lines.append("-" * 20)
+    for model, data in sorted(
+        token_summary["models"].items(), key=lambda x: -x[1]["calls"]
+    ):
+        lines.append(f"  {model:<40} {data['calls']:>5,} calls")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def render_analysis(log_path):
     records = list(load_records(log_path))
     time_series = build_utilization_time_series(records, window="5h")
@@ -580,19 +821,43 @@ def main():
     parser = argparse.ArgumentParser(
         description="Analyze normalized Claude sniffer logs."
     )
-    parser.add_argument("log_path", help="Path to normalized JSONL output")
+    parser.add_argument(
+        "log_path",
+        help="Path to normalized JSONL file or directory (e.g. ~/.claude-meter)",
+    )
     parser.add_argument(
         "--pretty",
         action="store_true",
         help="Pretty-print the JSON summary",
     )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Print human-readable budget and usage summary",
+    )
     args = parser.parse_args()
 
-    rendered = render_analysis(args.log_path)
-    if args.pretty:
-        print(json.dumps(json.loads(rendered), indent=2, sort_keys=True))
+    if args.summary:
+        records = load_records_multi(args.log_path)
+        print(render_summary(records))
     else:
-        print(rendered)
+        path = Path(args.log_path)
+        if path.is_dir():
+            records = load_records_multi(args.log_path)
+            rendered = json.dumps(
+                {
+                    "record_count": len(records),
+                    "token_summary": build_token_summary(records),
+                    "budget_estimates": build_session_budget_estimates(records),
+                },
+                sort_keys=True,
+            )
+        else:
+            rendered = render_analysis(args.log_path)
+        if args.pretty:
+            print(json.dumps(json.loads(rendered), indent=2, sort_keys=True))
+        else:
+            print(rendered)
 
 
 if __name__ == "__main__":

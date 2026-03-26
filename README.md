@@ -91,6 +91,10 @@ The current analysis layer can already:
 - compare raw-token and price-weighted usage formulas
 - build interval-based estimates
 - compute filtered `5h` estimate bands
+- estimate dollar budgets per 5h and 7d window using API pricing
+- show token usage breakdown (input, output, cache read, cache create)
+- report current and peak utilization per window
+- output a human-readable summary via `--summary` flag
 
 ## What Is Not There Yet
 
@@ -173,10 +177,62 @@ Backfill normalized records from existing raw logs:
 go run ./cmd/claude-meter backfill-normalized --log-dir ~/.claude-meter --plan-tier max_20x
 ```
 
-Run the analyzer:
+Run the analyzer (human-readable summary):
+
+```bash
+python3 analysis/analyze_normalized_log.py ~/.claude-meter --summary
+```
+
+This reads all normalized logs and outputs:
+
+```
+claude-meter analysis
+========================================
+
+Plan: max_20x
+API calls: 4,721
+Period: 2026-03-25 21:55 -> 2026-03-26 22:15
+
+Token Usage
+--------------------
+  Input:             5,509,548
+  Output:            1,850,132
+  Cache read:      443,884,520 (95.1%)
+  Cache create:     15,574,984
+
+Current Utilization
+--------------------
+  5h           2% (peak: 88%)
+  7d           81% (peak: 81%)
+  7d_sonnet    37% (peak: 37%)
+
+Estimated 5h Budget (11 sessions observed)
+--------------------
+  Range:   $35 - $401
+  Median:  $164
+  p25-p75: $99 - $291
+
+Estimated 7d Budget (1 session observed)
+--------------------
+  Estimate: ~$1,949
+
+By Model
+--------------------
+  claude-opus-4-6                          2,423 calls
+  claude-sonnet-4-6                        1,146 calls
+  claude-haiku-4-5-20251001                  855 calls
+```
+
+For raw JSON output (e.g. for piping to other tools):
 
 ```bash
 python3 analysis/analyze_normalized_log.py ~/.claude-meter/normalized/2026-03-26.jsonl --pretty
+```
+
+Generate charts and a markdown report:
+
+```bash
+python3 analysis/report.py ~/.claude-meter --output /tmp/cm-report
 ```
 
 ## Privacy and Safety
