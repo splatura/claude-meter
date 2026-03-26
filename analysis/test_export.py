@@ -173,7 +173,7 @@ class TestExportCliWritesJson(unittest.TestCase):
     def test_export_cli_writes_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             records = [_make_record()]
-            jsonl_path = _write_jsonl(records, directory=tmpdir)
+            _write_jsonl(records, directory=tmpdir)
             output_path = Path(tmpdir) / "share.json"
 
             result = subprocess.run(
