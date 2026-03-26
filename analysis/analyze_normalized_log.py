@@ -3,7 +3,30 @@
 
 import argparse
 import json
+import statistics
 from pathlib import Path
+
+
+MODEL_PRICE_UNITS_5M = {
+    "claude-haiku-4-5": {
+        "input": 1.0,
+        "output": 5.0,
+        "cache_write": 1.25,
+        "cache_read": 0.10,
+    },
+    "claude-sonnet-4-6": {
+        "input": 3.0,
+        "output": 15.0,
+        "cache_write": 3.75,
+        "cache_read": 0.30,
+    },
+    "claude-opus-4-6": {
+        "input": 5.0,
+        "output": 25.0,
+        "cache_write": 6.25,
+        "cache_read": 0.50,
+    },
+}
 
 
 def load_records(log_path):
@@ -14,19 +37,198 @@ def load_records(log_path):
                 yield json.loads(line)
 
 
-def _effective_tokens(record):
+def usage_value(record, meter="effective_tokens_raw", cache_read_weight=1.0):
+    model = _coalesce_model(record)
     usage = record.get("usage", {}) or {}
-    total = 0
-    for key in (
-        "input_tokens",
-        "cache_creation_input_tokens",
-        "cache_read_input_tokens",
-        "output_tokens",
-    ):
-        value = usage.get(key)
-        if isinstance(value, (int, float)):
-            total += value
-    return total
+    input_tokens = _numeric_usage_value(usage.get("input_tokens"))
+    cache_creation_input_tokens = _numeric_usage_value(
+        usage.get("cache_creation_input_tokens")
+    )
+    cache_read_input_tokens = _numeric_usage_value(usage.get("cache_read_input_tokens"))
+    output_tokens = _numeric_usage_value(usage.get("output_tokens"))
+
+    if meter == "effective_tokens_raw":
+        return (
+            input_tokens
+            + cache_creation_input_tokens
+            + cache_read_input_tokens
+            + output_tokens
+        )
+    if meter == "effective_tokens_no_cache_read":
+        return input_tokens + cache_creation_input_tokens + output_tokens
+    if meter == "effective_tokens_io_only":
+        return input_tokens + output_tokens
+    if meter == "effective_tokens_weighted":
+        return (
+            input_tokens
+            + cache_creation_input_tokens
+            + (cache_read_input_tokens * cache_read_weight)
+            + output_tokens
+        )
+    if meter == "price_equivalent_5m":
+        price_units = _model_price_units_5m(model)
+        return (
+            input_tokens * price_units["input"]
+            + cache_creation_input_tokens * price_units["cache_write"]
+            + cache_read_input_tokens * price_units["cache_read"]
+            + output_tokens * price_units["output"]
+        )
+
+    raise ValueError(f"unknown usage meter: {meter}")
+
+
+def _effective_tokens(record):
+    return usage_value(record, meter="effective_tokens_raw")
+
+
+def _numeric_usage_value(value):
+    if isinstance(value, (int, float)):
+        return value
+    return 0
+
+
+def _coalesce_model(record):
+    return record.get("response_model") or record.get("request_model") or ""
+
+
+def _model_price_units_5m(model):
+    for prefix, price_units in MODEL_PRICE_UNITS_5M.items():
+        if model.startswith(prefix):
+            return price_units
+    return MODEL_PRICE_UNITS_5M["claude-opus-4-6"]
+
+
+def _record_sort_timestamp(record):
+    return record.get("response_timestamp") or record.get("request_timestamp") or ""
+
+
+def _account_fingerprint(record):
+    return record.get("account_fingerprint") or "unknown"
+
+
+def _has_usable_usage(record):
+    usage = record.get("usage", {}) or {}
+    return any(
+        isinstance(usage.get(field), (int, float))
+        for field in (
+            "input_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+            "output_tokens",
+        )
+    )
+
+
+def build_utilization_intervals(records, meter="effective_tokens_raw", cache_read_weight=1.0):
+    eligible = []
+    for record in records:
+        if not (200 <= (record.get("status") or 0) < 300):
+            continue
+        if not record.get("request_timestamp"):
+            continue
+        windows = ((record.get("ratelimit") or {}).get("windows") or {})
+        for window_name, window_data in windows.items():
+            utilization = window_data.get("utilization")
+            if not isinstance(utilization, (int, float)):
+                continue
+            eligible.append(
+                {
+                    "record": record,
+                    "window": window_name,
+                    "utilization": utilization,
+                    "account_fingerprint": _account_fingerprint(record),
+                    "declared_plan_tier": record.get("declared_plan_tier") or "unknown",
+                    "sort_timestamp": _record_sort_timestamp(record),
+                }
+            )
+
+    eligible.sort(
+        key=lambda record: (
+            record["account_fingerprint"],
+            record["declared_plan_tier"],
+            record["window"],
+            record["sort_timestamp"],
+            record["record"].get("id") or 0,
+        )
+    )
+
+    intervals = []
+    previous_by_group_window = {}
+
+    for item in eligible:
+        group = item["declared_plan_tier"]
+        window_name = item["window"]
+        record = item["record"]
+        utilization = item["utilization"]
+        account_fingerprint = item["account_fingerprint"]
+
+        key = (account_fingerprint, group, window_name)
+        state = previous_by_group_window.get(key)
+        if state is None:
+            previous_by_group_window[key] = {
+                "anchor_record": record,
+                "anchor_utilization": utilization,
+                "pending_records": [],
+            }
+            continue
+
+        anchor_utilization = state["anchor_utilization"]
+        if utilization > anchor_utilization:
+            interval_records = list(state["pending_records"])
+            interval_records.append(record)
+            complete_usage = all(_has_usable_usage(interval_record) for interval_record in interval_records)
+            if complete_usage:
+                usage_total = sum(
+                    usage_value(interval_record, meter=meter, cache_read_weight=cache_read_weight)
+                    for interval_record in interval_records
+                )
+                implied_cap = usage_total / round(utilization - anchor_utilization, 10)
+            else:
+                usage_total = None
+                implied_cap = None
+            delta_utilization = round(utilization - anchor_utilization, 10)
+            intervals.append(
+                {
+                    "account_fingerprint": account_fingerprint,
+                    "declared_plan_tier": group,
+                    "window": window_name,
+                    "start_id": interval_records[0].get("id"),
+                    "end_id": record.get("id"),
+                    "start_timestamp": interval_records[0].get("request_timestamp"),
+                    "end_timestamp": record.get("request_timestamp"),
+                    "utilization_before": anchor_utilization,
+                    "utilization_after": utilization,
+                    "delta_utilization": delta_utilization,
+                    "record_count": len(interval_records),
+                    "meter": meter,
+                    "complete_usage": complete_usage,
+                    "usage_total": usage_total,
+                    "implied_cap": implied_cap,
+                    "models": sorted(
+                        {
+                            model
+                            for interval_record in interval_records
+                            for model in (_coalesce_model(interval_record),)
+                            if model
+                        }
+                    ),
+                }
+            )
+            previous_by_group_window[key] = {
+                "anchor_record": record,
+                "anchor_utilization": utilization,
+                "pending_records": [],
+            }
+        elif utilization == anchor_utilization:
+            state["pending_records"].append(record)
+        else:
+            previous_by_group_window[key] = {
+                "anchor_record": record,
+                "anchor_utilization": utilization,
+                "pending_records": [],
+            }
+
+    return intervals
 
 
 def summarize_windows(records):
@@ -73,7 +275,7 @@ def summarize_windows(records):
     return rendered
 
 
-def build_adjacent_deltas(records):
+def build_adjacent_deltas(records, meter="effective_tokens_raw", cache_read_weight=1.0):
     eligible = []
     for record in records:
         if not (200 <= (record.get("status") or 0) < 300):
@@ -102,8 +304,16 @@ def build_adjacent_deltas(records):
                 if isinstance(prev_utilization, (int, float)):
                     delta_utilization = round(utilization - prev_utilization, 10)
                     if delta_utilization > 0:
-                        effective_tokens = _effective_tokens(record)
-                        implied_cap = effective_tokens / delta_utilization if effective_tokens > 0 else None
+                        effective_tokens = usage_value(
+                            record,
+                            meter=meter,
+                            cache_read_weight=cache_read_weight,
+                        )
+                        implied_cap = (
+                            effective_tokens / delta_utilization
+                            if effective_tokens > 0
+                            else None
+                        )
                         deltas.append(
                             {
                                 "session_id": record["session_id"],
@@ -129,12 +339,34 @@ def build_adjacent_deltas(records):
     return deltas
 
 
+def build_meter_comparison(records):
+    comparison = {}
+    for meter in ("effective_tokens_raw", "price_equivalent_5m"):
+        deltas = [
+            delta
+            for delta in build_adjacent_deltas(records, meter=meter)
+            if delta["window"] == "5h" and delta.get("implied_cap_tokens") is not None
+        ]
+        caps = [delta["implied_cap_tokens"] for delta in deltas]
+        if not caps:
+            continue
+        comparison.setdefault("5h", {})[meter] = {
+            "count": len(caps),
+            "min": min(caps),
+            "median": statistics.median(caps),
+            "max": max(caps),
+        }
+    return comparison
+
+
 def render_analysis(log_path):
     records = list(load_records(log_path))
     summary = {
         "record_count": len(records),
         "window_summary": summarize_windows(records),
         "adjacent_deltas": build_adjacent_deltas(records),
+        "interval_estimates": build_utilization_intervals(records),
+        "meter_comparison": build_meter_comparison(records),
     }
     return json.dumps(summary, sort_keys=True)
 
