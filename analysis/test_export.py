@@ -83,15 +83,16 @@ class TestExportHashesIds(unittest.TestCase):
         result = export.export_share(path)
         entry = result["records"][0]
 
-        # Hashes should be 16-char hex strings
-        self.assertEqual(len(entry["account_hash"]), 16)
+        # session_hash should be 16-char hex string
+        self.assertNotIn("account_hash", entry)
         self.assertEqual(len(entry["session_hash"]), 16)
-        self.assertTrue(all(c in "0123456789abcdef" for c in entry["account_hash"]))
         self.assertTrue(all(c in "0123456789abcdef" for c in entry["session_hash"]))
 
-        # Hashes should NOT be the raw values
-        self.assertNotEqual(entry["account_hash"], "max_20x")
+        # Hash should NOT be the raw value
         self.assertNotEqual(entry["session_hash"], "session-abc")
+
+        # plan_tier is in the envelope, not per-record
+        self.assertEqual(result["plan_tier"], "max_20x")
 
         os.unlink(path)
 

@@ -85,7 +85,6 @@ def _anonymize_record(record):
         anonymized_windows[window_name] = entry
 
     return {
-        "account_hash": _hash16(record.get("declared_plan_tier") or ""),
         "session_hash": _hash16(record.get("session_id") or ""),
         "timestamp_bucket": _bucket_timestamp(
             record.get("response_timestamp") or ""
