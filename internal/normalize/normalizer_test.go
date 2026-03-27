@@ -296,6 +296,49 @@ func TestNormalizerExtractsCountTokensRecord(t *testing.T) {
 	}
 }
 
+func TestNormalizerClassifiesSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		userAgent string
+		want      string
+	}{
+		{"claude-cli", "claude-cli/2.1.85 (external, cli)", "claude-code"},
+		{"claude-cli-short", "claude-cli/2.1.75", "claude-code"},
+		{"claude-code", "claude-code/1.0.0", "claude-code"},
+		{"openclaw-ua", "openclaw/2026.3.22", "openclaw"},
+		{"bun-runtime", "Bun/1.3.11", "openclaw"},
+		{"empty", "", "unknown"},
+		{"other-client", "my-custom-tool/0.1", "my-custom-tool/0.1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var headers []capture.Header
+			if tt.userAgent != "" {
+				headers = append(headers, capture.Header{Name: "User-Agent", Value: tt.userAgent})
+			}
+
+			exchange := capture.CompletedExchange{
+				Request: capture.RecordedRequest{
+					Method:  "POST",
+					Path:    "/v1/messages",
+					Headers: headers,
+				},
+				Response: capture.RecordedResponse{Status: 200},
+			}
+
+			record := New("max_20x").Normalize(exchange)
+			if record.Source != tt.want {
+				t.Fatalf("Source = %q, want %q", record.Source, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizerFallsBackToGenericRecordWhenBodyParsingFails(t *testing.T) {
 	t.Parallel()
 

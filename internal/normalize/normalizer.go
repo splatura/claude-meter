@@ -52,6 +52,7 @@ func (n *Normalizer) Normalize(exchange capture.CompletedExchange) Record {
 		LatencyMS:         exchange.DurationMS,
 		DeclaredPlanTier:  n.planTier,
 		RequestID:         headerValue(exchange.Response.Headers, "request-id"),
+		Source:            classifySource(headerValue(exchange.Request.Headers, "user-agent")),
 		Ratelimit:         parseRatelimit(exchange.Response.Headers),
 	}
 
@@ -359,6 +360,25 @@ func extractSessionID(userID any) string {
 	default:
 		return ""
 	}
+}
+
+func classifySource(userAgent string) string {
+	if userAgent == "" {
+		return "unknown"
+	}
+
+	lower := strings.ToLower(userAgent)
+	if strings.HasPrefix(lower, "claude-cli/") || strings.HasPrefix(lower, "claude-code/") {
+		return "claude-code"
+	}
+	if strings.Contains(lower, "openclaw") {
+		return "openclaw"
+	}
+	if strings.HasPrefix(lower, "bun/") {
+		return "openclaw"
+	}
+
+	return userAgent
 }
 
 func basePath(path string) string {

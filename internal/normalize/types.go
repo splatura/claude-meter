@@ -15,6 +15,7 @@ type Record struct {
 	SessionID         string    `json:"session_id,omitempty"`
 	DeclaredPlanTier  string    `json:"declared_plan_tier,omitempty"`
 	RequestID         string    `json:"request_id,omitempty"`
+	Source            string    `json:"source,omitempty"`
 	Usage             Usage     `json:"usage"`
 	Ratelimit         Ratelimit `json:"ratelimit"`
 }

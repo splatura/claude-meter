@@ -86,6 +86,7 @@ From live Claude Code traffic, `claude-meter` can already capture:
 - model names
 - session ids
 - declared plan tier
+- client source (auto-classified from User-Agent: `claude-code`, `openclaw`, etc.)
 
 ### Analysis
 
@@ -99,6 +100,7 @@ The current analysis layer can already:
 - show token usage breakdown (input, output, cache read, cache create)
 - report current and peak utilization per window
 - output a human-readable summary via `--summary` flag
+- break down usage by client source (e.g. Claude Code vs openclaw)
 
 ## What Is Not There Yet
 
@@ -107,7 +109,7 @@ These are important gaps, not footnotes:
 - no exact hidden-limit estimator
 - no high-confidence scoring yet
 - no automatic reset-aware experiment mode
-- no packaged installer or background service
+- ~~no packaged installer or background service~~ (see [deployment guide](docs/deployment.md))
 - no built-in anonymized sharing flow
 - no cross-account comparison yet
 - no strong claim that the current estimate band is “the true limit”
@@ -219,6 +221,11 @@ Estimated 7d Budget (1 session observed)
 --------------------
   Estimate: ~$1,949
 
+By Source
+--------------------
+  claude-code                              4,100 calls
+  openclaw                                   324 calls
+
 By Model
 --------------------
   claude-opus-4-6                          2,423 calls
@@ -253,6 +260,12 @@ make dashboard
 ```
 
 This generates the HTML from your local data, then pushes it to the `gh-pages` branch.
+
+## Deployment
+
+See [docs/deployment.md](docs/deployment.md) for running claude-meter as a
+systemd service, setting up cron-based dashboard publishing, and configuring
+multi-client source tracking.
 
 ## Privacy and Safety
 

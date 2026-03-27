@@ -565,6 +565,7 @@ def build_token_summary(records):
     total_cache_read = 0
     total_cache_create = 0
     models = {}
+    sources = {}
 
     for r in records:
         u = r.get("usage") or {}
@@ -584,6 +585,12 @@ def build_token_summary(records):
             entry["calls"] += 1
             entry["input"] += inp
             entry["output"] += out
+
+        source = r.get("source") or "unknown"
+        src_entry = sources.setdefault(source, {"calls": 0, "input": 0, "output": 0})
+        src_entry["calls"] += 1
+        src_entry["input"] += inp
+        src_entry["output"] += out
 
     total_all = total_input + total_output + total_cache_read + total_cache_create
     cache_read_pct = (total_cache_read / total_all * 100) if total_all > 0 else 0
@@ -627,6 +634,7 @@ def build_token_summary(records):
         "cache_create_tokens": total_cache_create,
         "cache_read_pct": round(cache_read_pct, 1),
         "models": models,
+        "sources": sources,
         "windows": windows,
     }
 
@@ -787,6 +795,14 @@ def render_summary(records):
             lines.append(f"  Median:  ${est['median']:,.0f}")
             lines.append(f"  p25-p75: ${est['p25']:,.0f} - ${est['p75']:,.0f}")
         lines.append("")
+
+    lines.append("By Source")
+    lines.append("-" * 20)
+    for source, data in sorted(
+        token_summary.get("sources", {}).items(), key=lambda x: -x[1]["calls"]
+    ):
+        lines.append(f"  {source:<40} {data['calls']:>5,} calls")
+    lines.append("")
 
     lines.append("By Model")
     lines.append("-" * 20)

@@ -114,6 +114,20 @@ def _generate_html(data):
         '<tr><td colspan="5" class="muted">Not enough data</td></tr>'
     )
 
+    # Source breakdown
+    source_rows = []
+    for source, sdata in sorted(
+        ts.get("sources", {}).items(), key=lambda x: -x[1]["calls"]
+    ):
+        source_rows.append(
+            f'<tr><td>{source}</td><td>{sdata["calls"]:,}</td>'
+            f'<td>{_fmt_tokens(sdata["input"])}</td>'
+            f'<td>{_fmt_tokens(sdata["output"])}</td></tr>'
+        )
+    source_html = "\n".join(source_rows) if source_rows else (
+        '<tr><td colspan="4" class="muted">No source data</td></tr>'
+    )
+
     # Model breakdown
     model_rows = []
     for model, mdata in sorted(
@@ -379,6 +393,17 @@ def _generate_html(data):
       <div class="chart-container">
         <canvas id="utilizationChart"></canvas>
       </div>
+    </div>
+  </div>
+
+  <!-- Per-Source Breakdown -->
+  <div class="grid">
+    <div class="card full">
+      <h2>Per-Source Breakdown</h2>
+      <table>
+        <tr><th>Source</th><th>Calls</th><th>Input Tokens</th><th>Output Tokens</th></tr>
+        {source_html}
+      </table>
     </div>
   </div>
 
