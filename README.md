@@ -2,6 +2,10 @@
 
 `claude-meter` is a local research proxy for understanding how Claude Code usage maps to Anthropic's hidden quota system.
 
+![Dashboard Preview](docs/dashboard-preview.png)
+
+**[Live Dashboard](https://abhishekray07.github.io/claude-meter/)**
+
 The core problem is simple:
 
 - Claude Max / Pro users can see rough usage state, but not the real hidden budget
@@ -104,7 +108,6 @@ These are important gaps, not footnotes:
 - no high-confidence scoring yet
 - no automatic reset-aware experiment mode
 - no packaged installer or background service
-- no UI or dashboard
 - no built-in anonymized sharing flow
 - no cross-account comparison yet
 - no strong claim that the current estimate band is “the true limit”
@@ -234,6 +237,22 @@ Generate charts and a markdown report:
 ```bash
 python3 analysis/report.py ~/.claude-meter --output /tmp/cm-report
 ```
+
+## Dashboard
+
+Generate an interactive HTML dashboard with Chart.js charts:
+
+```bash
+python3 analysis/dashboard.py ~/.claude-meter --output index.html --open
+```
+
+Publish to GitHub Pages with one command:
+
+```bash
+make dashboard
+```
+
+This generates the HTML from your local data, then pushes it to the `gh-pages` branch.
 
 ## Privacy and Safety
 
