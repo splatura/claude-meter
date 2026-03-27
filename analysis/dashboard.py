@@ -178,6 +178,7 @@ def _generate_html(data):
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>claude-meter dashboard</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%231a1b26' stroke='%237aa2f7' stroke-width='3'/%3E%3Cpath d='M12 44 A24 24 0 0 1 52 44' fill='none' stroke='%23414868' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M12 44 A24 24 0 0 1 40 16' fill='none' stroke='%239ece6a' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='38' r='3' fill='%23c0caf5'/%3E%3Cline x1='32' y1='38' x2='42' y2='22' stroke='%23c0caf5' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
   :root {{
@@ -606,6 +607,7 @@ def _generate_no_data_html():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>claude-meter dashboard</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%231a1b26' stroke='%237aa2f7' stroke-width='3'/%3E%3Cpath d='M12 44 A24 24 0 0 1 52 44' fill='none' stroke='%23414868' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M12 44 A24 24 0 0 1 40 16' fill='none' stroke='%239ece6a' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='38' r='3' fill='%23c0caf5'/%3E%3Cline x1='32' y1='38' x2='42' y2='22' stroke='%23c0caf5' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
   body {{
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
