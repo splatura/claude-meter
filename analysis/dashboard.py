@@ -23,10 +23,10 @@ def _fmt_tokens(n):
 
 
 def _downsample(series, max_points=500):
-    """Downsample a time series using largest-triangle-three-buckets (simplified).
+    """Downsample a time series using max-per-bucket selection.
 
     Keeps first and last points, then picks the point with the highest
-    utilization change in each bucket to preserve peaks and dips.
+    utilization in each bucket to preserve peaks.
     """
     if len(series) <= max_points:
         return series
@@ -51,17 +51,12 @@ def _build_dashboard_data(records):
     budget_estimates = anl.build_session_budget_estimates(records)
     ts_5h = anl.build_utilization_time_series(records, window="5h")
     ts_7d = anl.build_utilization_time_series(records, window="7d")
-    window_summary = anl.summarize_windows(records)
-    estimate_band = anl.build_estimate_band(records)
-
     return {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "token_summary": token_summary,
         "budget_estimates": budget_estimates,
         "time_series_5h": _downsample(ts_5h),
         "time_series_7d": _downsample(ts_7d),
-        "window_summary": window_summary,
-        "estimate_band": estimate_band,
     }
 
 
@@ -424,23 +419,25 @@ function buildChart() {{
       datasets: [
         {{
           label: '5h window',
-          data: ts5h.map(p => ({{ x: p.timestamp, y: (p.utilization * 100).toFixed(1) }})),
+          data: ts5h.map(p => ({{ x: p.timestamp, y: p.utilization != null ? (p.utilization * 100).toFixed(1) : null }})),
           borderColor: '#7aa2f7',
           backgroundColor: 'rgba(122, 162, 247, 0.1)',
           borderWidth: 1.5,
           pointRadius: ts5h.length < 60 ? 2 : 0,
           fill: true,
           tension: 0.1,
+          spanGaps: false,
         }},
         {{
           label: '7d window',
-          data: ts7d.map(p => ({{ x: p.timestamp, y: (p.utilization * 100).toFixed(1) }})),
+          data: ts7d.map(p => ({{ x: p.timestamp, y: p.utilization != null ? (p.utilization * 100).toFixed(1) : null }})),
           borderColor: '#bb9af7',
           backgroundColor: 'rgba(187, 154, 247, 0.1)',
           borderWidth: 1.5,
           pointRadius: ts7d.length < 60 ? 2 : 0,
           fill: true,
           tension: 0.1,
+          spanGaps: false,
         }}
       ]
     }},
