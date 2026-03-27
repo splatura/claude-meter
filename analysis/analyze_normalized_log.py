@@ -580,17 +580,27 @@ def build_token_summary(records):
         total_cache_create += cc
 
         model = _coalesce_model(r)
+        source = r.get("source") or "unknown"
+        status = r.get("status", 0)
+
         if model:
-            entry = models.setdefault(model, {"calls": 0, "input": 0, "output": 0})
+            entry = models.setdefault(model, {"calls": 0, "input": 0, "output": 0, "by_source": {}})
             entry["calls"] += 1
             entry["input"] += inp
             entry["output"] += out
+            ms_entry = entry["by_source"].setdefault(source, {"calls": 0, "input": 0, "output": 0})
+            ms_entry["calls"] += 1
+            ms_entry["input"] += inp
+            ms_entry["output"] += out
 
-        source = r.get("source") or "unknown"
-        src_entry = sources.setdefault(source, {"calls": 0, "input": 0, "output": 0})
+        src_entry = sources.setdefault(source, {"calls": 0, "input": 0, "output": 0, "success": 0, "error": 0})
         src_entry["calls"] += 1
         src_entry["input"] += inp
         src_entry["output"] += out
+        if 200 <= status < 400:
+            src_entry["success"] += 1
+        else:
+            src_entry["error"] += 1
 
     total_all = total_input + total_output + total_cache_read + total_cache_create
     cache_read_pct = (total_cache_read / total_all * 100) if total_all > 0 else 0
@@ -801,7 +811,12 @@ def render_summary(records):
     for source, data in sorted(
         token_summary.get("sources", {}).items(), key=lambda x: -x[1]["calls"]
     ):
-        lines.append(f"  {source:<40} {data['calls']:>5,} calls")
+        total = data["calls"]
+        ok = data.get("success", 0)
+        err = data.get("error", 0)
+        err_pct = (err / total * 100) if total > 0 else 0
+        err_str = f"  ({err_pct:.0f}% errors)" if err > 0 else ""
+        lines.append(f"  {source:<30} {total:>5,} calls  ({ok:,} ok, {err:,} err){err_str}")
     lines.append("")
 
     lines.append("By Model")
@@ -810,6 +825,10 @@ def render_summary(records):
         token_summary["models"].items(), key=lambda x: -x[1]["calls"]
     ):
         lines.append(f"  {model:<40} {data['calls']:>5,} calls")
+        for src, sdata in sorted(
+            data.get("by_source", {}).items(), key=lambda x: -x[1]["calls"]
+        ):
+            lines.append(f"    {src:<38} {sdata['calls']:>5,} calls")
     lines.append("")
 
     return "\n".join(lines)

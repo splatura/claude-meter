@@ -114,30 +114,54 @@ def _generate_html(data):
         '<tr><td colspan="5" class="muted">Not enough data</td></tr>'
     )
 
-    # Source breakdown
+    # Source breakdown with success/failure
     source_rows = []
     for source, sdata in sorted(
         ts.get("sources", {}).items(), key=lambda x: -x[1]["calls"]
     ):
+        total = sdata["calls"]
+        ok = sdata.get("success", 0)
+        err = sdata.get("error", 0)
+        err_pct = (err / total * 100) if total > 0 else 0
+        err_class = ' class="color-red"' if err_pct >= 10 else ' class="color-yellow"' if err_pct >= 1 else ''
+        err_cell = f'<span{err_class}>{err:,} ({err_pct:.0f}%)</span>' if err > 0 else '0'
         source_rows.append(
-            f'<tr><td>{source}</td><td>{sdata["calls"]:,}</td>'
+            f'<tr><td>{source}</td><td>{total:,}</td>'
+            f'<td>{ok:,}</td><td>{err_cell}</td>'
             f'<td>{_fmt_tokens(sdata["input"])}</td>'
             f'<td>{_fmt_tokens(sdata["output"])}</td></tr>'
         )
     source_html = "\n".join(source_rows) if source_rows else (
-        '<tr><td colspan="4" class="muted">No source data</td></tr>'
+        '<tr><td colspan="6" class="muted">No source data</td></tr>'
     )
 
-    # Model breakdown
+    # Model breakdown with per-source drill-down
     model_rows = []
-    for model, mdata in sorted(
+    for midx, (model, mdata) in enumerate(sorted(
         ts.get("models", {}).items(), key=lambda x: -x[1]["calls"]
-    ):
+    )):
+        by_source = mdata.get("by_source", {})
+        has_detail = len(by_source) > 1
+        toggle = (
+            f' class="model-toggle" onclick="toggleModelSource(\'ms-{midx}\')" '
+            f'style="cursor:pointer"'
+            if has_detail else ""
+        )
+        arrow = '<span class="toggle-arrow">&#9654;</span> ' if has_detail else ""
         model_rows.append(
-            f'<tr><td>{model}</td><td>{mdata["calls"]:,}</td>'
+            f'<tr{toggle}><td>{arrow}{model}</td><td>{mdata["calls"]:,}</td>'
             f'<td>{_fmt_tokens(mdata["input"])}</td>'
             f'<td>{_fmt_tokens(mdata["output"])}</td></tr>'
         )
+        if has_detail:
+            for src, sdata in sorted(by_source.items(), key=lambda x: -x[1]["calls"]):
+                model_rows.append(
+                    f'<tr class="model-source-row ms-{midx}" style="display:none">'
+                    f'<td style="padding-left:28px;color:var(--text-muted)">{src}</td>'
+                    f'<td>{sdata["calls"]:,}</td>'
+                    f'<td>{_fmt_tokens(sdata["input"])}</td>'
+                    f'<td>{_fmt_tokens(sdata["output"])}</td></tr>'
+                )
     model_html = "\n".join(model_rows) if model_rows else (
         '<tr><td colspan="4" class="muted">No model data</td></tr>'
     )
@@ -315,6 +339,18 @@ def _generate_html(data):
   .color-green {{ color: var(--green); }}
   .color-yellow {{ color: var(--yellow); }}
   .color-red {{ color: var(--red); }}
+  .toggle-arrow {{
+    display: inline-block;
+    font-size: 10px;
+    transition: transform 0.2s;
+    margin-right: 4px;
+  }}
+  .toggle-arrow.open {{
+    transform: rotate(90deg);
+  }}
+  .model-toggle:hover {{
+    background: rgba(122, 162, 247, 0.05);
+  }}
   @media (max-width: 700px) {{
     .grid {{ grid-template-columns: 1fr; }}
     .header {{ flex-direction: column; gap: 8px; }}
@@ -401,7 +437,7 @@ def _generate_html(data):
     <div class="card full">
       <h2>Per-Source Breakdown</h2>
       <table>
-        <tr><th>Source</th><th>Calls</th><th>Input Tokens</th><th>Output Tokens</th></tr>
+        <tr><th>Source</th><th>Calls</th><th>Success</th><th>Errors</th><th>Input Tokens</th><th>Output Tokens</th></tr>
         {source_html}
       </table>
     </div>
@@ -539,6 +575,22 @@ function buildChart() {{
 }})();
 
 buildChart();
+
+function toggleModelSource(cls) {{
+  const rows = document.querySelectorAll('.' + cls);
+  const visible = rows.length > 0 && rows[0].style.display !== 'none';
+  rows.forEach(r => r.style.display = visible ? 'none' : '');
+  // Toggle arrow
+  const toggle = document.querySelector('.' + cls.replace('ms-', 'model-toggle:nth-of-type(1)'));
+  // Find the parent toggle row by scanning backwards
+  if (rows.length > 0) {{
+    const prev = rows[0].previousElementSibling;
+    if (prev) {{
+      const arrow = prev.querySelector('.toggle-arrow');
+      if (arrow) arrow.classList.toggle('open', !visible);
+    }}
+  }}
+}}
 </script>
 
 </body>
