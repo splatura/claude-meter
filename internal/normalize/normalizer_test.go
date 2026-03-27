@@ -304,9 +304,10 @@ func TestNormalizerClassifiesSource(t *testing.T) {
 		userAgent string
 		want      string
 	}{
-		{"claude-cli", "claude-cli/2.1.85 (external, cli)", "claude-code"},
-		{"claude-cli-short", "claude-cli/2.1.75", "claude-code"},
-		{"claude-code", "claude-code/1.0.0", "claude-code"},
+		{"claude-cli-full", "claude-cli/2.1.85 (external, cli)", "claude-code"},
+		{"claude-cli-bare", "claude-cli/2.1.75", "openclaw"},
+		{"claude-code-full", "claude-code/1.0.0 (external, cli)", "claude-code"},
+		{"claude-code-bare", "claude-code/1.0.0", "openclaw"},
 		{"openclaw-ua", "openclaw/2026.3.22", "openclaw"},
 		{"bun-runtime", "Bun/1.3.11", "openclaw"},
 		{"empty", "", "unknown"},

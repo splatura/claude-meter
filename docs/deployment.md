@@ -66,14 +66,20 @@ Any tool that uses the Anthropic API can be pointed at the proxy the same way.
 The proxy identifies which client made each request by inspecting the
 `User-Agent` header. Currently recognized sources:
 
-| User-Agent pattern        | Classified as  |
-|---------------------------|----------------|
-| `claude-cli/*`            | `claude-code`  |
-| `claude-code/*`           | `claude-code`  |
-| `Bun/*`                   | `openclaw`     |
-| Contains `openclaw`       | `openclaw`     |
-| Empty                     | `unknown`      |
-| Anything else             | raw User-Agent |
+| User-Agent pattern                          | Classified as  |
+|---------------------------------------------|----------------|
+| `claude-cli/* (external, cli)`              | `claude-code`  |
+| `claude-code/* (external, cli)`             | `claude-code`  |
+| `claude-cli/*` (without `(external, cli)`)  | `openclaw`     |
+| `Bun/*`                                     | `openclaw`     |
+| Contains `openclaw`                         | `openclaw`     |
+| Empty                                       | `unknown`      |
+| Anything else                               | raw User-Agent |
+
+Note: openclaw's pi-ai library uses an Anthropic OAuth token and sends
+`User-Agent: claude-cli/<version>` without the `(external, cli)` suffix
+that the real Claude Code CLI includes. This is how the proxy distinguishes
+the two.
 
 This means any client routed through the proxy is automatically tagged.
 The dashboard and CLI summary both show a "Per-Source Breakdown" / "By Source"

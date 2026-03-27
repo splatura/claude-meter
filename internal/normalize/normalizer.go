@@ -369,7 +369,10 @@ func classifySource(userAgent string) string {
 
 	lower := strings.ToLower(userAgent)
 	if strings.HasPrefix(lower, "claude-cli/") || strings.HasPrefix(lower, "claude-code/") {
-		return "claude-code"
+		if strings.Contains(lower, "(external, cli)") {
+			return "claude-code"
+		}
+		return "openclaw"
 	}
 	if strings.Contains(lower, "openclaw") {
 		return "openclaw"
