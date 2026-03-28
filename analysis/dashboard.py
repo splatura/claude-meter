@@ -141,27 +141,24 @@ def _generate_html(data):
         ts.get("models", {}).items(), key=lambda x: -x[1]["calls"]
     )):
         by_source = mdata.get("by_source", {})
-        has_detail = len(by_source) > 1
         toggle = (
             f' class="model-toggle" onclick="toggleModelSource(\'ms-{midx}\')" '
             f'style="cursor:pointer"'
-            if has_detail else ""
         )
-        arrow = '<span class="toggle-arrow">&#9654;</span> ' if has_detail else ""
+        arrow = '<span class="toggle-arrow">&#9654;</span> '
         model_rows.append(
             f'<tr{toggle}><td>{arrow}{model}</td><td>{mdata["calls"]:,}</td>'
             f'<td>{_fmt_tokens(mdata["input"])}</td>'
             f'<td>{_fmt_tokens(mdata["output"])}</td></tr>'
         )
-        if has_detail:
-            for src, sdata in sorted(by_source.items(), key=lambda x: -x[1]["calls"]):
-                model_rows.append(
-                    f'<tr class="model-source-row ms-{midx}" style="display:none">'
-                    f'<td style="padding-left:28px;color:var(--text-muted)">{src}</td>'
-                    f'<td>{sdata["calls"]:,}</td>'
-                    f'<td>{_fmt_tokens(sdata["input"])}</td>'
-                    f'<td>{_fmt_tokens(sdata["output"])}</td></tr>'
-                )
+        for src, sdata in sorted(by_source.items(), key=lambda x: -x[1]["calls"]):
+            model_rows.append(
+                f'<tr class="model-source-row ms-{midx}" style="display:none">'
+                f'<td style="padding-left:28px;color:var(--text-muted)">{src}</td>'
+                f'<td>{sdata["calls"]:,}</td>'
+                f'<td>{_fmt_tokens(sdata["input"])}</td>'
+                f'<td>{_fmt_tokens(sdata["output"])}</td></tr>'
+            )
     model_html = "\n".join(model_rows) if model_rows else (
         '<tr><td colspan="4" class="muted">No model data</td></tr>'
     )
